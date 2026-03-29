@@ -1,94 +1,92 @@
 /**
- * BestClash Cloudflare Worker
- * This worker acts as a proxy aggregator. It fetches all the raw/base64 proxy URLs
- * from standard sources, and merges them using a free subconverter API.
- * This completely eliminates the need for maintaining a separate backend or secret PROXIES_URL.
+ * CF-Clash-Aggregator Cloudflare Worker
+ * This worker acts as a proxy aggregator. It fetches raw proxy URLs
+ * and merges them using a reliable free subconverter API.
  */
 
-// This subconverter converts raw proxy strings/base64 lists/clash yamls into one unified clash config.
-// Alternative backends you can use: https://sub.xeton.dev/sub, https://api.v1.mk/sub
-const SUBCONVERTER_API = "https://sub.v1.mk/sub"; 
+const SUBCONVERTER_API = "https://sub.xeton.dev/sub"; 
 
-// List of all proxy sources to aggregate
+// A smaller random subset is provided per request to avoid "414 URI Too Long" or "400 Bad Request"
+// from the subconverter's load balancer.
 const DEFAULT_SOURCES = [
-  "https://cdn.jsdelivr.net/gh/vxiaov/free_proxies@main/clash/clash.provider.yaml",
-  "https://freenode.openrunner.net/uploads/20240807-clash.yaml",
-  "https://raw.githubusercontent.com/Misaka-blog/chromego_merge/main/sub/merged_proxies_new.yaml",
-  "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/clash-meta/all.yaml",
-  "https://raw.githubusercontent.com/NiceVPN123/NiceVPN/main/Clash.yaml",
-  "https://raw.githubusercontent.com/aiboboxx/clashfree/main/clash.yml",
-  "https://raw.githubusercontent.com/anaer/Sub/main/clash.yaml",
-  "https://raw.githubusercontent.com/chengaopan/AutoMergePublicNodes/master/list.yml",
   "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml",
-  "https://raw.githubusercontent.com/ermaozi01/free_clash_vpn/main/subscribe/clash.yml",
-  "https://raw.githubusercontent.com/lagzian/SS-Collector/main/mix_clash.yaml",
-  "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity.yml",
   "https://raw.githubusercontent.com/mfuu/v2ray/master/clash.yaml",
   "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.yml",
-  "https://raw.githubusercontent.com/ronghuaxueleng/get_v2/main/pub/combine.yaml",
-  "https://raw.githubusercontent.com/ts-sf/fly/main/clash",
-  "https://raw.githubusercontent.com/yaney01/Yaney01/main/temporary",
-  "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/base64/mix",
-  "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml",
-  "https://tt.vg/freeclash"
+  "https://raw.githubusercontent.com/lagzian/SS-Collector/main/mix_clash.yaml",
+  "https://raw.githubusercontent.com/Anaer/Sub/main/clash.yaml"
 ];
+
+function getRandomSubset(arr, n) {
+  const shuffled = arr.sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, n);
+}
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Provide a simple status page
     if (url.pathname === "/") {
-      return new Response("BestClash Worker Running! \nUse /subscribe to get your Clash proxies.", {
+      return new Response("CF-Clash-Aggregator Worker is Running!\n\nPlease configure your Clash client with:\n" + url.origin + "/subscribe", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
 
     if (url.pathname === "/subscribe" || url.pathname === "/proxies.yaml") {
-      // Create cache key
       const cacheUrl = new URL(url);
       const cacheKey = new Request(cacheUrl.toString(), request);
       const cache = caches.default;
       
-      // Look in cache first
       let response = await cache.match(cacheKey);
 
       if (!response) {
         try {
-          // If we hit a miss, aggressively compile the target via subconverter
-          // target=clash indicates we want a clash configuration
-          // insert=false indicates we just want nodes, or let subconverter handle standard rules.
-          const sources = DEFAULT_SOURCES.join("|");
+          // Select 3 random sources to avoid URL Too Long errors on backend
+          const sources = getRandomSubset(DEFAULT_SOURCES, 3).join("|");
           const queryUrl = `${SUBCONVERTER_API}?target=clash&url=${encodeURIComponent(sources)}&insert=false`;
 
-          console.log("Fetching freshly aggregated proxies from:", queryUrl);
+          console.log("Fetching from Subconverter:", queryUrl);
           
           let proxyResponse = await fetch(queryUrl, {
             headers: {
-              "User-Agent": "BestClash Worker Aggregator/1.0"
+              "User-Agent": "CF-Clash-Aggregator/1.0"
             }
           });
 
           if (!proxyResponse.ok) {
-            throw new Error(`Subconverter failed with status: ${proxyResponse.status}`);
+            // Attempt fallback to raw file if subconverter totally fails
+            proxyResponse = await fetch("https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml");
           }
 
           const responseText = await proxyResponse.text();
+
+          // Subconverter sometimes returns a text like "No nodes were found"
+          if (responseText.includes("No nodes were found")) {
+            throw new Error("Subconverter failed to parse nodes from the sources.");
+          }
 
           response = new Response(responseText, {
             status: 200,
             headers: {
               "Content-Type": "text/yaml; charset=utf-8",
-              "Cache-Control": "s-maxage=1800", // Cache at the Edge for 30 minutes
+              "Cache-Control": "s-maxage=1800", // Cache for 30 minutes
             },
           });
 
-          // Cache the response
           ctx.waitUntil(cache.put(cacheKey, response.clone()));
           
         } catch (err) {
-          return new Response(`Error aggregating proxies: ${err.message}`, { status: 500 });
+          // Final fallback
+          console.error(err);
+          const fallbackResponse = await fetch("https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml");
+          response = new Response(await fallbackResponse.text(), {
+            status: 200,
+            headers: {
+               "Content-Type": "text/yaml; charset=utf-8",
+               "Cache-Control": "s-maxage=1800",
+            }
+          });
+          ctx.waitUntil(cache.put(cacheKey, response.clone()));
         }
       }
 

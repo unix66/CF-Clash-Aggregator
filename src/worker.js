@@ -41,9 +41,24 @@ export default {
 
       if (!response) {
         try {
+          // 智能客户端检测：通过 User-Agent 或 URL 参数决定下发格式
+          let target = "clash";
+          const queryTarget = url.searchParams.get("target");
+          const ua = (request.headers.get("User-Agent") || "").toLowerCase();
+          
+          if (queryTarget) {
+            target = queryTarget;
+          } else if (ua.includes("v2ray") || ua.includes("v2rayn")) {
+            target = "v2ray";
+          } else if (ua.includes("surge")) {
+            target = "surge&ver=4";
+          } else if (ua.includes("surfboard")) {
+            target = "surfboard";
+          }
+
           // Select 3 random sources to avoid URL Too Long errors on backend
           const sources = getRandomSubset(DEFAULT_SOURCES, 3).join("|");
-          const queryUrl = `${SUBCONVERTER_API}?target=clash&url=${encodeURIComponent(sources)}&insert=false`;
+          const queryUrl = `${SUBCONVERTER_API}?target=${target}&url=${encodeURIComponent(sources)}&insert=false`;
 
           console.log("Fetching from Subconverter:", queryUrl);
           

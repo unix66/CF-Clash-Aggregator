@@ -26,7 +26,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/") {
-      return new Response("CF-Clash-Aggregator Worker is Running!\n\nPlease configure your Clash client with:\n" + url.origin + "/subscribe", {
+      return new Response("CF-Clash-Aggregator Worker is Running!\n\nPlease configure your Clash/v2ray client with:\n" + url.origin + "/subscribe", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
@@ -40,22 +40,28 @@ export default {
       let response = await cache.match(cacheKey);
 
       if (!response) {
-        try {
-          // 智能客户端检测：通过 User-Agent 或 URL 参数决定下发格式
-          let target = "clash";
-          const queryTarget = url.searchParams.get("target");
-          const ua = (request.headers.get("User-Agent") || "").toLowerCase();
-          
-          if (queryTarget) {
-            target = queryTarget;
-          } else if (ua.includes("v2ray") || ua.includes("v2rayn")) {
-            target = "v2ray";
-          } else if (ua.includes("surge")) {
-            target = "surge&ver=4";
-          } else if (ua.includes("surfboard")) {
-            target = "surfboard";
-          }
+        // 智能客户端检测：通过 User-Agent 或 URL 参数决定下发格式
+        let target = "clash";
+        const queryTarget = url.searchParams.get("target");
+        const ua = (request.headers.get("User-Agent") || "").toLowerCase();
+        
+        if (queryTarget) {
+          target = queryTarget;
+        } else if (ua.includes("v2ray") || ua.includes("v2rayn")) {
+          target = "v2ray";
+        } else if (ua.includes("surge")) {
+          target = "surge&ver=4";
+        } else if (ua.includes("surfboard")) {
+          target = "surfboard";
+        }
 
+        // 动态配置保底的 fallback，防止主转换器挂掉导致全平台断网
+        let fallbackUrl = "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml";
+        if (target === "v2ray") {
+           fallbackUrl = "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/base64/mix";
+        }
+
+        try {
           // Select 3 random sources to avoid URL Too Long errors on backend
           const sources = getRandomSubset(DEFAULT_SOURCES, 3).join("|");
           const queryUrl = `${SUBCONVERTER_API}?target=${target}&url=${encodeURIComponent(sources)}&insert=false`;
@@ -64,13 +70,13 @@ export default {
           
           let proxyResponse = await fetch(queryUrl, {
             headers: {
-              "User-Agent": "CF-Clash-Aggregator/1.0"
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
             }
           });
 
           if (!proxyResponse.ok) {
             // Attempt fallback to raw file if subconverter totally fails
-            proxyResponse = await fetch("https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml");
+            proxyResponse = await fetch(fallbackUrl);
           }
 
           const responseText = await proxyResponse.text();
@@ -80,10 +86,13 @@ export default {
             throw new Error("Subconverter failed to parse nodes from the sources.");
           }
 
+          // 如果是 v2ray 配置通常是 Base64 字符串，不需要 text/yaml 头
+          const contentType = target === "clash" ? "text/yaml; charset=utf-8" : "text/plain; charset=utf-8";
+
           response = new Response(responseText, {
             status: 200,
             headers: {
-              "Content-Type": "text/yaml; charset=utf-8",
+              "Content-Type": contentType,
               "Cache-Control": "s-maxage=1800", // Cache for 30 minutes
             },
           });
@@ -93,11 +102,13 @@ export default {
         } catch (err) {
           // Final fallback
           console.error(err);
-          const fallbackResponse = await fetch("https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml");
+          const fallbackResponse = await fetch(fallbackUrl);
+          const contentType = target === "clash" ? "text/yaml; charset=utf-8" : "text/plain; charset=utf-8";
+
           response = new Response(await fallbackResponse.text(), {
             status: 200,
             headers: {
-               "Content-Type": "text/yaml; charset=utf-8",
+               "Content-Type": contentType,
                "Cache-Control": "s-maxage=1800",
             }
           });

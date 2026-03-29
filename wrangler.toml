@@ -1,0 +1,8 @@
+name = "cf-clash-aggregator"
+main = "src/worker.js"
+compatibility_date = "2024-05-24"
+workers_dev = true
+
+# You can adjust this to periodically warm up the cache if desired
+# [triggers]
+# crons = ["*/30 * * * *"]

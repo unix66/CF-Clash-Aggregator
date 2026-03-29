@@ -1,4 +1,4 @@
-name = "cf-clash-aggregator"
+name = "aaaclas"
 main = "src/worker.js"
 compatibility_date = "2024-05-24"
 workers_dev = true

@@ -6,7 +6,7 @@
 
 您可以点击下方按钮，直接在浏览器中将此项目一键部署到您的 Cloudflare 账户中（完全免费）：
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/PuddinCat/CF-Clash-Aggregator)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/facl/CF-Clash-Aggregator)
 
 ### 本地终端发版流程（如果使用代码仓库拉取）
 
